@@ -41,8 +41,11 @@ export const App: React.FC = () => {
   const [voicePitch, setVoicePitch] = useState<number>(0.95);
   const [soundVolume, setSoundVolume] = useState<number>(0.6);
 
-  // Speech Engine Ref
+  // Speech Engine Ref & Command Ref
   const speechEngineRef = useRef<JarvisSpeechEngine | null>(null);
+  const handleExecuteCommandRef = useRef<((cmd: string) => Promise<void>) | null>(null);
+  const demoModeRef = useRef<boolean>(demoMode);
+  demoModeRef.current = demoMode;
 
   // Add operational event helper
   const addEvent = useCallback((type: string, details: string, status: 'info' | 'success' | 'warning' | 'error' = 'info') => {
@@ -56,7 +59,7 @@ export const App: React.FC = () => {
     setEvents((prev) => [...prev.slice(-35), evt]);
   }, []);
 
-  // Window spawn helper
+  // Window spawn helper - completely decoupled from state dependencies to prevent speech restarts
   const spawnWindow = useCallback((component: DynamicUIComponent) => {
     const id = component.id || crypto.randomUUID();
     nextZIndex.current += 1;
@@ -64,36 +67,34 @@ export const App: React.FC = () => {
     // Intelligent positioning around AI Core
     const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
     const screenHeight = typeof window !== 'undefined' ? window.innerHeight : 800;
-
-    // Position alternately on left/right of center
-    const isEven = windows.length % 2 === 0;
     const initialWidth = Math.min(520, screenWidth - 40);
     const initialHeight = 440;
 
-    const x = isEven
-      ? Math.max(20, Math.round(screenWidth * 0.5 - initialWidth - 80))
-      : Math.min(screenWidth - initialWidth - 20, Math.round(screenWidth * 0.5 + 80));
-
-    const y = Math.max(90, Math.round(screenHeight * 0.22 + (windows.length % 3) * 30));
-
-    const newWindow: FloatingWindow = {
-      id,
-      component,
-      x: isNaN(x) ? 60 : x,
-      y: isNaN(y) ? 100 : y,
-      width: initialWidth,
-      height: initialHeight,
-      isMinimized: false,
-      isMaximized: false,
-      zIndex: nextZIndex.current,
-    };
-
     setWindows((prev) => {
-      // Keep at most 3 windows open simultaneously to avoid clutter
-      const filtered = prev.length >= 3 ? prev.slice(1) : prev;
+      const isEven = prev.length % 2 === 0;
+      const x = isEven
+        ? Math.max(20, Math.round(screenWidth * 0.5 - initialWidth - 80))
+        : Math.min(screenWidth - initialWidth - 20, Math.round(screenWidth * 0.5 + 80));
+
+      const y = Math.max(90, Math.round(screenHeight * 0.22 + (prev.length % 3) * 30));
+
+      const newWindow: FloatingWindow = {
+        id,
+        component,
+        x: isNaN(x) ? 60 : x,
+        y: isNaN(y) ? 100 : y,
+        width: initialWidth,
+        height: initialHeight,
+        isMinimized: false,
+        isMaximized: false,
+        zIndex: nextZIndex.current,
+      };
+
+      // Keep at most 4 windows open simultaneously to avoid clutter
+      const filtered = prev.length >= 4 ? prev.slice(1) : prev;
       return [...filtered, newWindow];
     });
-  }, [windows.length]);
+  }, []);
 
   // Execute Command Logic
   const handleExecuteCommand = useCallback(
@@ -113,7 +114,7 @@ export const App: React.FC = () => {
       }
 
       try {
-        const res = await api.sendCommand(commandText, undefined, demoMode);
+        const res = await api.sendCommand(commandText, undefined, demoModeRef.current);
 
         // Record backend telemetry events
         if (res.events && res.events.length > 0) {
@@ -156,26 +157,26 @@ export const App: React.FC = () => {
         soundEffects.playErrorTone();
         addEvent('SYSTEM_FAULT', err.message || 'Execution failed', 'error');
 
-        // Provide vocal error notification
+        // Provide vocal error notification with guaranteed return to IDLE
         if (speechEngineRef.current) {
           speechEngineRef.current.speak('Subsystem malfunction detected, sir. Please consult the log.', () => {
-            setTimeout(() => {
-              setCoreState('IDLE');
-              setActiveUtterance('');
-            }, 1000);
+            setCoreState('IDLE');
+            setActiveUtterance('');
           });
         } else {
           setTimeout(() => {
             setCoreState('IDLE');
             setActiveUtterance('');
-          }, 3000);
+          }, 2000);
         }
       }
     },
-    [addEvent, demoMode, spawnWindow]
+    [addEvent, spawnWindow]
   );
 
-  // Initialize Speech Engine & System Status
+  handleExecuteCommandRef.current = handleExecuteCommand;
+
+  // Initialize Speech Engine ONCE & System Status
   useEffect(() => {
     // 1. Fetch system status
     api
@@ -186,20 +187,22 @@ export const App: React.FC = () => {
         addEvent('SYSTEM_INITIALIZED', `JARVIS Online • Engine: ${data.aiProvider}`, 'success');
       })
       .catch(() => {
-        addEvent('SYSTEM_INITIALIZED', 'JARVIS Online (Local Mode)', 'info');
+        addEvent('SYSTEM_INITIALIZED', 'JARVIS Online (Local Contingency Mode)', 'info');
       });
 
-    // 2. Setup speech engine
+    // 2. Setup speech engine ONCE on component mount
     const engine = new JarvisSpeechEngine({
       onWakeWordDetected: () => {
         setCoreState('LISTENING');
-        addEvent('WAKE_WORD_TRIGGER', 'Wake phrase "Hey Jarvis" detected', 'success');
+        addEvent('WAKE_WORD_TRIGGER', 'Wake phrase detected', 'success');
       },
       onTranscriptChange: (interim) => {
         setActiveUtterance(interim);
       },
       onCommandComplete: (cmd) => {
-        handleExecuteCommand(cmd);
+        if (handleExecuteCommandRef.current) {
+          handleExecuteCommandRef.current(cmd);
+        }
       },
       onListeningStateChange: (listening, monitoring) => {
         setIsListening(listening);
@@ -223,11 +226,22 @@ export const App: React.FC = () => {
       );
     }
 
+    // Audio unlock listener for browser autoplay policy
+    const unlockAudioOnGesture = () => {
+      soundEffects.playWakeTone();
+      window.removeEventListener('pointerdown', unlockAudioOnGesture);
+      window.removeEventListener('keydown', unlockAudioOnGesture);
+    };
+    window.addEventListener('pointerdown', unlockAudioOnGesture);
+    window.addEventListener('keydown', unlockAudioOnGesture);
+
     return () => {
+      window.removeEventListener('pointerdown', unlockAudioOnGesture);
+      window.removeEventListener('keydown', unlockAudioOnGesture);
       engine.stopListening();
       engine.stopSpeaking();
     };
-  }, [addEvent, handleExecuteCommand]);
+  }, [addEvent]);
 
   // Global Keyboard Shortcut: Spacebar for Push-To-Talk
   useEffect(() => {

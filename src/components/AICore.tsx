@@ -25,13 +25,21 @@ export const AICore: React.FC<AICoreProps> = ({
     let animationFrameId: number;
     let angle = 0;
     let pulse = 0;
+    let width = 320;
+    let height = 320;
+    let cx = 160;
+    let cy = 160;
 
     // High DPI Canvas resolution
     const updateSize = () => {
       const rect = canvas.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
+      width = rect.width || 320;
+      height = rect.height || 320;
+      cx = width / 2;
+      cy = height / 2;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
       ctx.scale(dpr, dpr);
     };
 
@@ -60,12 +68,6 @@ export const AICore: React.FC<AICoreProps> = ({
     }
 
     const render = () => {
-      const rect = canvas.getBoundingClientRect();
-      const width = rect.width;
-      const height = rect.height;
-      const cx = width / 2;
-      const cy = height / 2;
-
       ctx.clearRect(0, 0, width, height);
 
       // State speeds and colors

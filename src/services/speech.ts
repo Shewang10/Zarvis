@@ -147,6 +147,10 @@ export class JarvisSpeechEngine {
   private selectedVoice: SpeechSynthesisVoice | null = null;
   private hindiVoice: SpeechSynthesisVoice | null = null;
   private silenceTimer: any = null;
+  private restartTimer: any = null;
+  private speechWatchdog: any = null;
+  private keepAliveInterval: any = null;
+  private activeUtterance: SpeechSynthesisUtterance | null = null;
   private currentUtterance: string = '';
 
   public isSupported = false;
@@ -270,25 +274,38 @@ export class JarvisSpeechEngine {
     };
 
     this.recognition.onerror = (event: any) => {
-      if (event.error === 'no-speech') {
-        // Normal silence timeout in speech recognition
+      if (event.error === 'no-speech' || event.error === 'aborted') {
         return;
       }
       if (event.error === 'not-allowed') {
         this.handlers.onError('Microphone access blocked. Please permit microphone access in browser settings.');
         this.isContinuousEnabled = false;
         this.handlers.onListeningStateChange(false, false);
+        return;
+      }
+      if (event.error === 'network' || event.error === 'audio-capture') {
+        if (this.isContinuousEnabled && !this.isCurrentlySpeaking) {
+          setTimeout(() => {
+            try {
+              this.recognition?.start();
+            } catch {}
+          }, 1000);
+        }
       }
     };
 
     this.recognition.onend = () => {
       if (this.isContinuousEnabled && !this.isCurrentlySpeaking) {
-        // Auto-restart continuous listening loop
-        try {
-          this.recognition.start();
-        } catch {
-          // Handled on next cycle
-        }
+        if (this.restartTimer) clearTimeout(this.restartTimer);
+        this.restartTimer = setTimeout(() => {
+          try {
+            if (this.isContinuousEnabled && !this.isCurrentlySpeaking) {
+              this.recognition.start();
+            }
+          } catch {
+            // Already started or busy
+          }
+        }, 200);
       } else {
         this.handlers.onListeningStateChange(false, false);
       }
@@ -335,7 +352,11 @@ export class JarvisSpeechEngine {
   public triggerActiveListening() {
     if (!this.isSupported || !this.recognition) return;
 
-    if (this.synth) this.synth.cancel();
+    if (this.synth) {
+      try {
+        this.synth.cancel();
+      } catch {}
+    }
     this.isCurrentlySpeaking = false;
     this.isUserTurnActive = true;
     this.currentUtterance = '';
@@ -355,6 +376,7 @@ export class JarvisSpeechEngine {
     this.isContinuousEnabled = false;
     this.isUserTurnActive = false;
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    if (this.restartTimer) clearTimeout(this.restartTimer);
 
     if (this.recognition) {
       try {
@@ -366,23 +388,31 @@ export class JarvisSpeechEngine {
     this.handlers.onListeningStateChange(false, false);
   }
 
-  // Text-to-speech with natural voice and echo cancellation
+  // Text-to-speech with natural voice, echo cancellation, and watchdog safety
   public speak(text: string, onEnd?: () => void) {
     if (!this.synth) {
       if (onEnd) onEnd();
       return;
     }
 
-    this.synth.cancel();
+    // Clear previous state and timers
+    if (this.speechWatchdog) clearTimeout(this.speechWatchdog);
+    if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
+
+    try {
+      this.synth.cancel();
+      if (this.synth.paused) {
+        this.synth.resume();
+      }
+    } catch {}
+
     this.isCurrentlySpeaking = true;
 
     // Temporarily pause recognition so JARVIS does not listen to itself
     if (this.recognition) {
       try {
         this.recognition.stop();
-      } catch {
-        // Ignore
-      }
+      } catch {}
     }
 
     const cleanText = text
@@ -393,6 +423,8 @@ export class JarvisSpeechEngine {
     const isHindi = /[\u0900-\u097F]/.test(cleanText);
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
+    this.activeUtterance = utterance; // Retain reference to prevent V8 garbage collection bug
+
     if (isHindi && this.hindiVoice) {
       utterance.voice = this.hindiVoice;
       utterance.lang = 'hi-IN';
@@ -403,42 +435,79 @@ export class JarvisSpeechEngine {
     }
     utterance.pitch = this.voicePitch;
 
-    utterance.onend = () => {
+    let hasCleanedUp = false;
+    const finishSpeech = () => {
+      if (hasCleanedUp) return;
+      hasCleanedUp = true;
+      if (this.speechWatchdog) clearTimeout(this.speechWatchdog);
+      if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
+
+      this.activeUtterance = null;
       this.isCurrentlySpeaking = false;
       if (onEnd) onEnd();
 
       // Resume continuous wake-word loop after speech finishes
       if (this.isContinuousEnabled && this.recognition) {
-        setTimeout(() => {
+        if (this.restartTimer) clearTimeout(this.restartTimer);
+        this.restartTimer = setTimeout(() => {
           try {
-            this.recognition.start();
-          } catch {
-            // Ignore
-          }
-        }, 300);
+            if (this.isContinuousEnabled && !this.isCurrentlySpeaking) {
+              this.recognition.start();
+            }
+          } catch {}
+        }, 250);
       }
+    };
+
+    utterance.onend = () => {
+      finishSpeech();
     };
 
     utterance.onerror = () => {
-      this.isCurrentlySpeaking = false;
-      if (onEnd) onEnd();
-      if (this.isContinuousEnabled && this.recognition) {
-        try {
-          this.recognition.start();
-        } catch {
-          // Ignore
-        }
-      }
+      finishSpeech();
     };
 
-    this.synth.speak(utterance);
+    // Watchdog timer: If browser fails to trigger onend, force finish so UI and microphone never hang
+    const estimatedMs = Math.max(3500, Math.min(22000, cleanText.length * 100 + 3000));
+    this.speechWatchdog = setTimeout(() => {
+      finishSpeech();
+    }, estimatedMs);
+
+    // Chrome keep-alive: pause/resume to prevent 15-second cutoff
+    this.keepAliveInterval = setInterval(() => {
+      try {
+        if (this.synth?.speaking) {
+          this.synth.pause();
+          this.synth.resume();
+        } else {
+          clearInterval(this.keepAliveInterval);
+        }
+      } catch {}
+    }, 4000);
+
+    try {
+      this.synth.speak(utterance);
+    } catch {
+      finishSpeech();
+    }
   }
 
   public stopSpeaking() {
+    if (this.speechWatchdog) clearTimeout(this.speechWatchdog);
+    if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
     if (this.synth) {
-      this.synth.cancel();
+      try {
+        this.synth.cancel();
+      } catch {}
+    }
+    if (this.activeUtterance) {
+      this.activeUtterance = null;
     }
     this.isCurrentlySpeaking = false;
+  }
+
+  public get activeSpeechUtterance(): SpeechSynthesisUtterance | null {
+    return this.activeUtterance;
   }
 }
 
