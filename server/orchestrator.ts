@@ -128,6 +128,37 @@ function buildDynamicComponent(
   const now = new Date().toISOString();
 
   switch (intent) {
+    case 'EMAIL':
+      return {
+        id,
+        type: 'EMAIL',
+        title: 'COMMUNICATIONS & OUTLOOK CONSOLE',
+        subtitle: `Action: ${data?.actionExecuted || 'Inbox'} • ${data?.inbox?.length || 0} communications`,
+        data: data || {},
+        createdAt: now,
+      };
+
+    case 'BROWSER_CONTROL':
+      return {
+        id,
+        type: 'SEARCH_RESULTS',
+        title: 'BROWSER & APP NAVIGATION',
+        subtitle: `Target: ${data?.app || data?.url || 'Web'}`,
+        data: {
+          query: data?.url || query,
+          totalResults: 1,
+          results: [
+            {
+              title: `Launch ${data?.app || 'Web Destination'}`,
+              url: data?.url || 'https://www.google.com',
+              snippet: data?.message || `Navigating to ${data?.url || data?.app}`,
+              domain: data?.app || 'system',
+            },
+          ],
+        },
+        createdAt: now,
+      };
+
     case 'NEWS_SEARCH':
       return {
         id,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Radio, Settings, Sparkles, Terminal } from 'lucide-react';
+import { Radio, Settings, Sparkles, Terminal, Languages } from 'lucide-react';
 import { SystemStatusData } from '../types';
 
 interface HUDHeaderProps {
@@ -77,6 +77,11 @@ export const HUDHeader: React.FC<HUDHeaderProps> = ({
         <div className="flex items-center gap-2">
           <span>TIME:</span>
           <span className="text-hud-cyan font-bold">{time}</span>
+        </div>
+
+        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-hud-cyan/10 border border-hud-cyan/30 text-hud-cyan text-[11px]">
+          <Languages className="w-3 h-3 text-hud-cyan" />
+          <span>AUTO EN / हिन्दी</span>
         </div>
       </div>
 

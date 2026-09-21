@@ -17,6 +17,7 @@ export type ComponentType =
   | 'TIME'
   | 'CHART'
   | 'SUMMARY'
+  | 'EMAIL'
   | 'ALERT';
 
 export interface DynamicUIComponent {

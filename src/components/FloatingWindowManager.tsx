@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { FloatingWindow } from '../types';
 import { DynamicResponseRenderer } from './renderer/DynamicResponseRenderer';
 import {
@@ -8,6 +8,7 @@ import {
   Minimize2,
   Layers,
   Terminal,
+  LayoutGrid,
 } from 'lucide-react';
 
 interface FloatingWindowManagerProps {
@@ -26,6 +27,7 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
   onFocus,
 }) => {
   const [isMobile, setIsMobile] = useState(false);
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [dragState, setDragState] = useState<{
     windowId: string | null;
     startX: number;
@@ -40,14 +42,57 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
     initialY: 0,
   });
 
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
+  // Calculate sequential positions for panels
+  const computeSequentialPositions = useCallback(
+    (wins: FloatingWindow[]) => {
+      const screenW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+      const newPos: Record<string, { x: number; y: number }> = {};
+      const activeWins = wins.filter((w) => !w.isMinimized);
 
+      activeWins.forEach((w, idx) => {
+        const isLeft = idx % 2 === 0;
+        const row = Math.floor(idx / 2);
+        const panelW = Math.min(w.width || 480, Math.floor(screenW * 0.42));
+
+        // Left column slot: x = 24
+        // Right column slot: x = screenW - panelW - 24
+        const x = isLeft ? 24 : Math.max(24, screenW - panelW - 24);
+        // Vertical spacing: row 0 starts at y=76, row 1 starts at y=510
+        const y = 76 + row * 430;
+
+        newPos[w.id] = { x, y };
+      });
+
+      return newPos;
+    },
+    []
+  );
+
+  // Auto-align sequentially whenever windows change and positions are unassigned
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
+
+    setPositions((prev) => {
+      const sequential = computeSequentialPositions(windows);
+      const merged = { ...prev };
+      windows.forEach((w) => {
+        if (!merged[w.id]) {
+          merged[w.id] = sequential[w.id] || { x: w.x, y: w.y };
+        }
+      });
+      return merged;
+    });
+
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  }, [windows, computeSequentialPositions]);
+
+  // Snap all open windows into sequential order
+  const handleSnapSequential = () => {
+    const sequential = computeSequentialPositions(windows);
+    setPositions(sequential);
+  };
 
   const handleMouseDown = (e: React.MouseEvent, w: FloatingWindow) => {
     if (isMobile || w.isMaximized) return;
@@ -141,7 +186,7 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
           ))}
         </div>
       ) : (
-        /* Desktop Floating Windows */
+        /* Desktop Floating Windows with Sequential Auto-Alignment */
         <div className="pointer-events-none fixed inset-0 z-30">
           {activeWindows.map((w) => {
             const pos = positions[w.id] || { x: w.x, y: w.y };
@@ -162,7 +207,7 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
                   position: 'absolute',
                   top: `${pos.y}px`,
                   left: `${pos.x}px`,
-                  width: `${w.width}px`,
+                  width: `${Math.min(w.width, Math.floor(window.innerWidth * 0.44))}px`,
                   zIndex: w.zIndex,
                 };
 
@@ -176,7 +221,7 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
                 {/* Holographic Header / Drag Bar */}
                 <div
                   onMouseDown={(e) => handleMouseDown(e, w)}
-                  className="flex items-center justify-between px-3.5 py-2.5 bg-black/60 border-b border-hud-cyan/30 cursor-move select-none"
+                  className="flex items-center justify-between px-3.5 py-2 bg-black/70 border-b border-hud-cyan/30 cursor-move select-none"
                 >
                   <div className="flex items-center gap-2 truncate">
                     <span className="w-2 h-2 rounded-full bg-hud-cyan animate-pulse shadow-glow-cyan shrink-0" />
@@ -233,6 +278,20 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
               </div>
             );
           })}
+
+          {/* Sequential Align Action Floating Widget */}
+          {activeWindows.length > 1 && (
+            <div className="fixed top-20 left-1/2 -translate-x-1/2 z-40 pointer-events-auto">
+              <button
+                onClick={handleSnapSequential}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-hud-panel/90 border border-hud-cyan/40 hover:border-hud-cyan text-[11px] font-mono text-hud-cyan hover:text-white shadow-glow-cyan backdrop-blur-md transition-all hover:scale-105"
+                title="Align all active panels sequentially on the left and right sides"
+              >
+                <LayoutGrid className="w-3 h-3 text-hud-cyan" />
+                <span>ALIGN PANELS SEQUENTIALLY</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -254,4 +313,3 @@ export const FloatingWindowManager: React.FC<FloatingWindowManagerProps> = ({
     </>
   );
 };
-

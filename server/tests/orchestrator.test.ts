@@ -54,6 +54,29 @@ describe('JARVIS Intent Routing', () => {
     expect(r.intent).toBe('DATABASE_QUERY');
     expect(r.tools[0].name).toBe('databaseQuery');
   });
+
+  it('correctly routes email and outlook commands in English and Hindi', () => {
+    const r1 = toolRegistry.routeIntent('Jarvis, open my email');
+    expect(r1.intent).toBe('EMAIL');
+    expect(r1.tools[0].name).toBe('email');
+
+    const r2 = toolRegistry.routeIntent('जार्विस मेरा ईमेल खोलो');
+    expect(r2.intent).toBe('EMAIL');
+    expect(r2.tools[0].name).toBe('email');
+  });
+
+  it('correctly routes browser control commands', () => {
+    const r = toolRegistry.routeIntent('Jarvis, open youtube');
+    expect(r.intent).toBe('BROWSER_CONTROL');
+    expect(r.tools[0].name).toBe('browserControl');
+    expect(r.tools[0].params.url).toContain('youtube.com');
+  });
+
+  it('correctly routes Hindi weather queries', () => {
+    const r = toolRegistry.routeIntent('जार्विस आज का मौसम बताओ');
+    expect(r.intent).toBe('WEATHER');
+    expect(r.tools[0].name).toBe('weather');
+  });
 });
 
 describe('JARVIS Tool Execution & Math', () => {
@@ -114,6 +137,30 @@ describe('JARVIS Full Orchestrator Pipeline', () => {
     expect(newsRes.component.data.articles[0].title).toBeDefined();
     expect(newsRes.component.data.articles[0].source).toBeDefined();
     expect(newsRes.component.data.articles[0].url).toBeDefined();
+  });
+
+  it('processes email command and returns EMAIL component with inbox stream', async () => {
+    const emailRes = await processCommand({
+      text: 'Jarvis, open my email',
+      demoMode: true,
+    });
+    expect(emailRes.intent).toBe('EMAIL');
+    expect(emailRes.component.type).toBe('EMAIL');
+    expect(emailRes.component.data.inbox).toBeDefined();
+    expect(emailRes.component.data.inbox.length).toBeGreaterThan(0);
+    expect(emailRes.spokenResponse).toContain('Microsoft Outlook');
+  });
+
+  it('handles Hindi directives and provides responses in Hindi', async () => {
+    const hindiRes = await processCommand({
+      text: 'जार्विस आज का मौसम बताओ',
+      demoMode: true,
+    });
+    expect(hindiRes.intent).toBe('WEATHER');
+    expect(hindiRes.component.type).toBe('WEATHER');
+    // Spoken response should be in Hindi
+    expect(hindiRes.spokenResponse).toMatch(/[\u0900-\u097F]/);
+    expect(hindiRes.spokenResponse).toContain('मौसम');
   });
 });
 

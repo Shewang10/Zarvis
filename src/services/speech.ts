@@ -145,6 +145,7 @@ export class JarvisSpeechEngine {
   private handlers: SpeechListenerHandlers;
   private synth: SpeechSynthesis | null = null;
   private selectedVoice: SpeechSynthesisVoice | null = null;
+  private hindiVoice: SpeechSynthesisVoice | null = null;
   private silenceTimer: any = null;
   private currentUtterance: string = '';
 
@@ -191,6 +192,20 @@ export class JarvisSpeechEngine {
       if (preferred) {
         this.selectedVoice = preferred;
       }
+
+      // Find Hindi voice for bilingual replies
+      const hi = voices.find(
+        (v) =>
+          v.lang.startsWith('hi') ||
+          v.name.toLowerCase().includes('hindi') ||
+          v.name.includes('हिन्दी') ||
+          v.name.toLowerCase().includes('lekha') ||
+          v.name.toLowerCase().includes('neerja')
+      ) || voices.find((v) => v.lang.includes('IN'));
+
+      if (hi) {
+        this.hindiVoice = hi;
+      }
     };
 
     pickVoice();
@@ -229,8 +244,10 @@ export class JarvisSpeechEngine {
       const activeText = (finalTranscript || interim).trim();
       const lower = activeText.toLowerCase();
 
-      // Check for wake word trigger
-      const wakeWordMatch = lower.match(/\b(?:hey\s+jarvis|jarvis|zarvis|ok\s+jarvis|hey\s+zarvis)\b/i);
+      // Check for wake word trigger in English and Hindi
+      const wakeWordMatch = lower.match(
+        /\b(?:hey\s+jarvis|jarvis|zarvis|ok\s+jarvis|hey\s+zarvis|नमस्ते\s*जार्विस|जार्विस|namaste\s*jarvis)\b/i
+      );
 
       if (!this.isUserTurnActive && wakeWordMatch) {
         this.isUserTurnActive = true;
@@ -373,11 +390,17 @@ export class JarvisSpeechEngine {
       .replace(/[*_#`~[\]]/g, '')
       .trim();
 
+    const isHindi = /[\u0900-\u097F]/.test(cleanText);
+
     const utterance = new SpeechSynthesisUtterance(cleanText);
-    if (this.selectedVoice) {
+    if (isHindi && this.hindiVoice) {
+      utterance.voice = this.hindiVoice;
+      utterance.lang = 'hi-IN';
+      utterance.rate = 1.0;
+    } else if (this.selectedVoice) {
       utterance.voice = this.selectedVoice;
+      utterance.rate = this.voiceRate;
     }
-    utterance.rate = this.voiceRate;
     utterance.pitch = this.voicePitch;
 
     utterance.onend = () => {

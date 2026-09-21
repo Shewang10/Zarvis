@@ -8,6 +8,7 @@ import { MemoryCard } from '../cards/MemoryCard';
 import { SystemStatusCard } from '../cards/SystemStatusCard';
 import { TimeCard } from '../cards/TimeCard';
 import { SummaryCard } from '../cards/SummaryCard';
+import { EmailCard } from '../cards/EmailCard';
 
 interface DynamicResponseRendererProps {
   component: DynamicUIComponent;
@@ -15,6 +16,9 @@ interface DynamicResponseRendererProps {
 
 export const DynamicResponseRenderer: React.FC<DynamicResponseRendererProps> = ({ component }) => {
   switch (component.type) {
+    case 'EMAIL':
+      return <EmailCard data={component.data} />;
+
     case 'NEWS':
       return <NewsCard data={component.data} />;
 

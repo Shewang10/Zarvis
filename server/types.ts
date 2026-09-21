@@ -8,6 +8,8 @@ export type IntentType =
   | 'SYSTEM_STATUS'
   | 'TIME'
   | 'DATABASE_QUERY'
+  | 'EMAIL'
+  | 'BROWSER_CONTROL'
   | 'GENERAL_CONVERSATION';
 
 export type ComponentType =
@@ -20,6 +22,7 @@ export type ComponentType =
   | 'TIME'
   | 'CHART'
   | 'SUMMARY'
+  | 'EMAIL'
   | 'ALERT';
 
 export interface DynamicUIComponent {

@@ -14,14 +14,15 @@ interface CommandBarProps {
 }
 
 const QUICK_COMMANDS = [
+  'Open my email (Outlook)',
+  'जार्विस मेरा ईमेल खोलो',
   'What are the latest AI news today?',
-  'Search the web for NVIDIA AI announcements',
+  'जार्विस ताज़ा खबरें दिखाओ',
+  'Calculate 125 multiplied by 47',
+  'जार्विस आज का मौसम बताओ',
   'Remember that my project is called CleanFleet',
   'What do you remember about CleanFleet?',
-  'Calculate 125 multiplied by 47',
-  "Show me today's weather",
-  'What time is it?',
-  'Show me the last five things I asked you',
+  'Open GitHub',
   'System status diagnostic',
 ];
 
